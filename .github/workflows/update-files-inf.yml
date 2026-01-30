@@ -7,6 +7,9 @@ on:
       - 'files/**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   update-files-inf:
     runs-on: ubuntu-latest
