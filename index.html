@@ -5,101 +5,176 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub 云盘</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .header { padding: 20px; border-bottom: 1px solid #e0e0e0; background: #fafafa; }
-        .header h1 { font-size: 1.5em; color: #333; }
-        .breadcrumb { padding: 10px 20px; background: #f9f9f9; border-bottom: 1px solid #e0e0e0; font-size: 0.9em; }
-        .breadcrumb-item { cursor: pointer; color: #1976d2; text-decoration: none; }
-        .breadcrumb-item:hover { text-decoration: underline; }
-        .file-list { padding: 0; }
-        .file-item { display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
-        .file-item:hover { background: #f5f5f5; }
-        .file-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; margin-right: 12px; font-size: 1.2em; }
-        .file-info { flex: 1; }
-        .file-name { font-size: 1em; color: #333; margin-bottom: 2px; }
-        .file-meta { font-size: 0.8em; color: #888; }
-        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; text-decoration: none; }
-        .btn-download { background: #1976d2; color: white; }
-        .btn-open { background: #4caf50; color: white; }
-        .empty-state { padding: 40px 20px; text-align: center; color: #888; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; padding: 20px; }
+        h1 { color: #333; margin-bottom: 20px; }
+        .breadcrumb { margin-bottom: 20px; color: #666; }
+        .breadcrumb span { cursor: pointer; color: #1976d2; }
+        .breadcrumb span:hover { text-decoration: underline; }
+        .file-list { }
+        .file-item { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; }
+        .file-item:hover { background: #f9f9f9; }
+        .file-icon { font-size: 24px; margin-right: 12px; }
+        .file-name { flex: 1; }
+        .file-size { color: #888; font-size: 0.9em; }
+        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; font-size: 0.9em; }
+        .btn-open { background: #4caf50; }
+        .btn-download { background: #1976d2; }
+        .empty { text-align: center; color: #888; padding: 40px; }
+        .error { color: red; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>☁️ GitHub 云盘</h1>
-        </div>
-        <div class="breadcrumb" id="breadcrumb"></div>
-        <div class="file-list" id="fileList"></div>
+        <h1>☁️ GitHub 云盘</h1>
+        <div class="breadcrumb" id="breadcrumb">🏠 根目录</div>
+        <div class="file-list" id="fileList">加载中...</div>
     </div>
 
     <script>
-        const FILES_INF_PATH = 'files.inf';
-        const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
-        const CURRENT_REPO = window.location.pathname.match(/\/([^/]+\/[^/]+)\/)?.[1] || '';
-
+        // 全局变量
+        let allFiles = [];
         let currentPath = '';
-        let fileData = null;
-
-        async function loadFilesInf() {
+        
+        // 配置
+        const FILES_INF_PATH = 'files.inf';
+        const GITHUB_RAW = 'https://raw.githubusercontent.com';
+        
+        // 获取仓库名
+        function getRepoName() {
+            const match = window.location.pathname.match(/\/([^\/]+\/[^\/]+)\//);
+            return match ? match[1] : '';
+        }
+        
+        // 加载文件列表
+        async function loadFiles() {
             try {
                 const response = await fetch(FILES_INF_PATH);
-                if (!response.ok) throw new Error('无法加载文件列表');
+                if (!response.ok) throw new Error('加载失败: ' + response.status);
                 const text = await response.text();
-                return parseFilesInf(text);
+                parseFiles(text);
+                renderFiles();
             } catch (error) {
-                console.error('加载失败:', error);
-                return null;
+                document.getElementById('fileList').innerHTML = `<div class="error">⚠️ ${error.message}</div>`;
             }
         }
-
-        function parseFilesInf(text) {
-            const files = [];
-            const lines = text.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
-            for (const line of lines) {
-                const parts = line.split('|').map(p => p.trim());
+        
+        // 解析文件
+        function parseFiles(text) {
+            allFiles = [];
+            const lines = text.split('\n');
+            
+            for (let line of lines) {
+                line = line.trim();
+                if (!line || line.startsWith('#')) continue;
+                
+                const parts = line.split('|');
                 if (parts.length >= 3) {
-                    // 确保路径以 / 结尾（如果是目录）
-                    let path = parts[0];
-                    if (parts[2] === 'dir' && !path.endsWith('/')) {
-                        path = path + '/';
-                    }
-                    files.push({
-                        path: path,
-                        name: parts[1],
-                        type: parts[2],
-                        size: parts[3] || '0',
-                        updated: parts[4] || new Date().toISOString()
+                    allFiles.push({
+                        path: parts[0].trim(),
+                        name: parts[1].trim(),
+                        type: parts[2].trim(),
+                        size: parts[3] ? parts[3].trim() : '0'
                     });
                 }
             }
-            return files;
+            
+            console.log('解析完成，共', allFiles.length, '个文件');
+            console.log('文件列表:', allFiles);
         }
-
-        function getCurrentFiles() {
-            if (!fileData) return [];
+        
+        // 获取当前目录的文件
+        function getCurrentDirFiles() {
+            const result = [];
             
-            // 如果当前路径为空，显示根目录（files/）的直接子项
-            const normalizedCurrentPath = currentPath ? currentPath.replace(/\/$/, '') + '/' : '';
-            
-            return fileData.filter(file => {
-                const filePath = file.path;
+            for (let file of allFiles) {
+                let filePath = file.path;
+                
+                // 确保目录路径以 / 结尾
+                if (file.type === 'dir' && !filePath.endsWith('/')) {
+                    filePath = filePath + '/';
+                }
                 
                 // 检查是否在当前目录下
-                if (!filePath.startsWith(normalizedCurrentPath)) return false;
+                if (!filePath.startsWith(currentPath)) continue;
                 
                 // 获取相对路径
-                const relativePath = filePath.slice(normalizedCurrentPath.length);
+                const relativePath = filePath.slice(currentPath.length);
                 
-                // 如果是空字符串，说明是当前目录本身，跳过
-                if (!relativePath) return false;
+                // 跳过当前目录本身
+                if (!relativePath) continue;
                 
-                // 检查是否是直接子项（不包含 /）
-                return !relativePath.includes('/');
+                // 只显示直接子项（不包含 /）
+                if (!relativePath.includes('/')) {
+                    result.push({
+                        ...file,
+                        path: filePath
+                    });
+                }
+            }
+            
+            // 排序：文件夹在前
+            result.sort((a, b) => {
+                if (a.type === 'dir' && b.type !== 'dir') return -1;
+                if (a.type !== 'dir' && b.type === 'dir') return 1;
+                return a.name.localeCompare(b.name);
             });
+            
+            console.log('当前目录:', currentPath, '文件数:', result.length);
+            return result;
         }
-
+        
+        // 渲染文件列表
+        function renderFiles() {
+            const files = getCurrentDirFiles();
+            const fileList = document.getElementById('fileList');
+            
+            // 更新面包屑
+            updateBreadcrumb();
+            
+            if (files.length === 0) {
+                fileList.innerHTML = '<div class="empty">📭 此目录为空</div>';
+                return;
+            }
+            
+            let html = '';
+            for (let file of files) {
+                const icon = file.type === 'dir' ? '📁' : '📄';
+                const size = file.type === 'dir' ? '文件夹' : formatSize(file.size);
+                const btnClass = file.type === 'dir' ? 'btn-open' : 'btn-download';
+                const btnText = file.type === 'dir' ? '打开' : '下载';
+                
+                html += `
+                    <div class="file-item" onclick="openItem('${file.path}', '${file.type}')">
+                        <span class="file-icon">${icon}</span>
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">${size}</span>
+                        <button class="btn ${btnClass}">${btnText}</button>
+                    </div>
+                `;
+            }
+            
+            fileList.innerHTML = html;
+        }
+        
+        // 更新面包屑
+        function updateBreadcrumb() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            const parts = currentPath.split('/').filter(p => p);
+            
+            let html = '<span onclick="goToPath(\'\')">🏠 根目录</span>';
+            let pathAccum = '';
+            
+            for (let part of parts) {
+                pathAccum += part + '/';
+                html += ` / <span onclick="goToPath('${pathAccum}')">${part}</span>`;
+            }
+            
+            breadcrumb.innerHTML = html;
+        }
+        
+        // 格式化文件大小
         function formatSize(bytes) {
             if (!bytes || bytes === '0') return '0 B';
             const num = parseInt(bytes);
@@ -108,83 +183,28 @@
             if (num < 1048576) return (num / 1024).toFixed(1) + ' KB';
             return (num / 1048576).toFixed(1) + ' MB';
         }
-
-        function renderBreadcrumb() {
-            const breadcrumb = document.getElementById('breadcrumb');
-            const parts = currentPath.split('/').filter(p => p);
-            let html = '<span class="breadcrumb-item" onclick="goPath(\'\')">🏠</span>';
-            let pathAccum = '';
-            for (const part of parts) {
-                pathAccum += part + '/';
-                html += ` / <span class="breadcrumb-item" onclick="goPath('${pathAccum}')">${part}</span>`;
-            }
-            breadcrumb.innerHTML = html;
-        }
-
-        function renderFileList() {
-            const fileList = document.getElementById('fileList');
-            const files = getCurrentFiles();
-            
-            renderBreadcrumb();
-            
-            if (files.length === 0) {
-                fileList.innerHTML = '<div class="empty-state">📭 此目录为空</div>';
-                return;
-            }
-            
-            files.sort((a, b) => {
-                if (a.type === 'dir' && b.type !== 'dir') return -1;
-                if (a.type !== 'dir' && b.type === 'dir') return 1;
-                return a.name.localeCompare(b.name);
-            });
-            
-            let html = '';
-            for (const file of files) {
-                const icon = file.type === 'dir' ? '📁' : '📄';
-                html += `
-                    <div class="file-item" onclick="handleClick('${file.path}', '${file.type}')">
-                        <div class="file-icon">${icon}</div>
-                        <div class="file-info">
-                            <div class="file-name">${file.name}</div>
-                            <div class="file-meta">${file.type === 'dir' ? '文件夹' : formatSize(file.size)}</div>
-                        </div>
-                        ${file.type === 'dir' 
-                            ? `<button class="btn btn-open">打开</button>`
-                            : `<button class="btn btn-download">下载</button>`
-                        }
-                    </div>
-                `;
-            }
-            fileList.innerHTML = html;
-        }
-
-        function goPath(path) {
+        
+        // 跳转到指定路径
+        function goToPath(path) {
             currentPath = path;
-            renderFileList();
+            renderFiles();
         }
-
-        function handleClick(path, type) {
+        
+        // 打开项目
+        function openItem(path, type) {
             if (type === 'dir') {
                 currentPath = path.endsWith('/') ? path : path + '/';
-                renderFileList();
+                renderFiles();
             } else {
-                const url = `${GITHUB_RAW_BASE}/${CURRENT_REPO}/main/${path}`;
+                const repo = getRepoName();
+                const url = `${GITHUB_RAW}/${repo}/main/${path}`;
+                console.log('下载链接:', url);
                 window.open(url, '_blank');
             }
         }
-
-        async function init() {
-            fileData = await loadFilesInf();
-            if (!fileData) {
-                document.getElementById('fileList').innerHTML = '<div class="empty-state">⚠️ 加载失败</div>';
-                return;
-            }
-            // 从根目录开始显示
-            currentPath = '';
-            renderFileList();
-        }
-
-        document.addEventListener('DOMContentLoaded', init);
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', loadFiles);
     </script>
 </body>
 </html>
