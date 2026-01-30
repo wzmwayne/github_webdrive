@@ -18,42 +18,111 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Generate files.inf
+      - name: Generate index.html
         run: |
-          # 添加文件头注释
-          echo "# GitHub 云盘文件列表" > files.inf
-          echo "# 自动生成，请勿手动编辑" >> files.inf
-          echo "# 格式: 相对路径|显示名称|类型|大小|更新时间" >> files.inf
-          echo "" >> files.inf
+          # 生成 HTML 头部
+          cat > index.html << 'EOF'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub 云盘</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; padding: 20px; }
+        h1 { color: #333; margin-bottom: 20px; }
+        .file-list { }
+        .file-item { display: flex; align-items: center; padding: 12px; border-bottom: 1px solid #eee; }
+        .file-icon { font-size: 24px; margin-right: 12px; }
+        .file-name { flex: 1; }
+        .file-size { color: #888; font-size: 0.9em; }
+        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; font-size: 0.9em; text-decoration: none; }
+        .btn-open { background: #4caf50; }
+        .btn-download { background: #1976d2; }
+        .empty { text-align: center; color: #888; padding: 40px; }
+        .section { margin-top: 30px; }
+        .section-title { font-size: 1.2em; color: #333; margin-bottom: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>☁️ GitHub 云盘</h1>
+        <div class="file-list">
+EOF
           
-          # 遍历 files 目录（如果存在）
+          # 遍历 files 目录生成文件列表
           if [ -d "files" ]; then
-            find files -type f -o -type d | sort | while read -r filepath; do
-              # 获取相对路径
-              relpath="$filepath"
+            # 先添加目录
+            find files -type d | sort | while read -r dirpath; do
+              dirname=$(basename "$dirpath")
+              relpath=$(echo "$dirpath" | sed 's|^files/||')
               
-              # 获取显示名称
-              displayname=$(basename "$filepath")
-              
-              # 判断类型
-              if [ -d "$filepath" ]; then
-                type="dir"
-                size="0"
-              else
-                type="file"
-                size=$(stat -f%z "$filepath" 2>/dev/null || stat -c%s "$filepath" 2>/dev/null || echo "0")
+              # 跳过 files 根目录本身
+              if [ "$dirpath" = "files" ]; then
+                continue
               fi
               
-              # 获取更新时间
-              updated=$(stat -f%Sm -t "%Y-%m-%dT%H:%M:%SZ" "$filepath" 2>/dev/null || stat -c%y "$filepath" 2>/dev/null | sed 's/ /T/' | sed 's/\.[0-9]*$/Z/' || date -u +"%Y-%m-%dT%H:%M:%SZ")
+              # 获取子目录和文件数量
+              subdir_count=$(find "$dirpath" -maxdepth 1 -type d 2>/dev/null | wc -l)
+              file_count=$(find "$dirpath" -maxdepth 1 -type f 2>/dev/null | wc -l)
+              total_count=$((subdir_count - 1 + file_count))
               
-              # 写入文件
-              echo "$relpath|$displayname|$type|$size|$updated" >> files.inf
+              cat >> index.html << EOF
+            <div class="file-item">
+                <span class="file-icon">📁</span>
+                <span class="file-name">$dirname/</span>
+                <span class="file-size">$total_count 项</span>
+            </div>
+EOF
             done
+            
+            # 添加文件
+            find files -type f | sort | while read -r filepath; do
+              filename=$(basename "$filepath")
+              relpath=$(echo "$filepath" | sed 's|^files/||')
+              size=$(stat -f%z "$filepath" 2>/dev/null || stat -c%s "$filepath" 2>/dev/null || echo "0")
+              
+              # 格式化大小
+              if [ "$size" -lt 1024 ]; then
+                size_display="${size} B"
+              elif [ "$size" -lt 1048576 ]; then
+                size_display="$((size / 1024)).$((size % 1024 * 10 / 1024)) KB"
+              else
+                size_display="$((size / 1048576)).$((size % 1048576 * 10 / 1048576)) MB"
+              fi
+              
+              download_url="https://raw.githubusercontent.com/wzmwayne/github_webdrive/main/files/$relpath"
+              
+              cat >> index.html << EOF
+            <div class="file-item">
+                <span class="file-icon">📄</span>
+                <span class="file-name">$filename</span>
+                <span class="file-size">$size_display</span>
+                <a href="$download_url" class="btn btn-download" target="_blank">下载</a>
+            </div>
+EOF
+            done
+          else
+            echo '            <div class="empty">📭 暂无文件</div>' >> index.html
           fi
           
-          echo "files.inf 已生成"
-          cat files.inf
+          # 生成 HTML 尾部
+          cat >> index.html << 'EOF'
+        </div>
+        <div style="margin-top: 30px; color: #888; font-size: 0.9em; text-align: center;">
+            Powered by GitHub | 最后更新: <span id="updateTime"></span>
+        </div>
+    </div>
+    <script>
+        document.getElementById('updateTime').textContent = new Date().toLocaleString('zh-CN');
+    </script>
+</body>
+</html>
+EOF
+          
+          echo "index.html 已生成"
       
       - name: Commit and push changes
         run: |
@@ -63,7 +132,7 @@ jobs:
           if git diff --quiet && git diff --staged --quiet; then
             echo "没有更改，无需提交"
           else
-            git add files.inf
-            git commit -m "chore: 自动更新 files.inf 文件列表"
+            git add index.html
+            git commit -m "chore: 自动更新 index.html 文件列表"
             git push
           fi
