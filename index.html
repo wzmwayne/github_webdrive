@@ -3,193 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub 云盘 - 调试模式</title>
+    <title>GitHub 云盘</title>
     <style>
-        body { font-family: monospace; padding: 20px; background: #fff; }
-        .debug { background: #f0f0f0; padding: 10px; margin: 10px 0; border: 1px solid #ccc; }
-        .file-item { padding: 5px; border-bottom: 1px solid #eee; cursor: pointer; }
-        .file-item:hover { background: #ffffcc; }
-        .error { color: red; }
-        .success { color: green; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { padding: 20px; border-bottom: 1px solid #e0e0e0; background: #fafafa; }
+        .header h1 { font-size: 1.5em; color: #333; }
+        .breadcrumb { padding: 10px 20px; background: #f9f9f9; border-bottom: 1px solid #e0e0e0; font-size: 0.9em; }
+        .breadcrumb-item { cursor: pointer; color: #1976d2; text-decoration: none; }
+        .breadcrumb-item:hover { text-decoration: underline; }
+        .file-list { padding: 0; }
+        .file-item { display: flex; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+        .file-item:hover { background: #f5f5f5; }
+        .file-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; margin-right: 12px; font-size: 1.2em; }
+        .file-info { flex: 1; }
+        .file-name { font-size: 1em; color: #333; margin-bottom: 2px; }
+        .file-meta { font-size: 0.8em; color: #888; }
+        .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; text-decoration: none; }
+        .btn-download { background: #1976d2; color: white; }
+        .btn-open { background: #4caf50; color: white; }
+        .empty-state { padding: 40px 20px; text-align: center; color: #888; }
     </style>
 </head>
 <body>
-    <h1>GitHub 云盘 - 调试模式</h1>
-    
-    <div id="debug-info">
-        <div class="debug">
-            <strong>调试信息：</strong><br>
-            当前路径: <span id="currentPath"></span><br>
-            仓库: <span id="repo"></span><br>
-            文件总数: <span id="fileCount"></span><br>
-            当前目录文件数: <span id="currentDirCount"></span>
+    <div class="container">
+        <div class="header">
+            <h1>☁️ GitHub 云盘</h1>
         </div>
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="file-list" id="fileList"></div>
     </div>
-
-    <div class="debug">
-        <strong>当前目录路径:</strong> <span id="breadcrumb"></span>
-    </div>
-
-    <h3>文件列表:</h3>
-    <div id="fileList"></div>
-
-    <h3>原始 files.inf 内容:</h3>
-    <pre id="rawContent" class="debug"></pre>
-
-    <h3>解析后的文件数据:</h3>
-    <pre id="parsedData" class="debug"></pre>
 
     <script>
-        // 调试信息
-        function log(msg, type = 'info') {
-            console.log(`[${type.toUpperCase()}] ${msg}`);
-        }
-
-        // 配置
         const FILES_INF_PATH = 'files.inf';
         const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
         const CURRENT_REPO = window.location.pathname.match(/\/([^/]+\/[^/]+)\/)?.[1] || '';
-        let currentPath = 'files/';
+
+        let currentPath = '';
         let fileData = null;
 
-        log(`仓库: ${CURRENT_REPO}`);
-        log(`文件路径: ${FILES_INF_PATH}`);
-
-        // 更新调试信息
-        function updateDebugInfo() {
-            document.getElementById('currentPath').textContent = currentPath;
-            document.getElementById('repo').textContent = CURRENT_REPO || '未知';
-            document.getElementById('fileCount').textContent = fileData ? fileData.length : 0;
-            document.getElementById('currentDirCount').textContent = getCurrentFiles().length;
-            document.getElementById('breadcrumb').textContent = currentPath;
-        }
-
-        // 加载文件
         async function loadFilesInf() {
-            log('开始加载 files.inf...');
             try {
                 const response = await fetch(FILES_INF_PATH);
-                log(`响应状态: ${response.status}`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
+                if (!response.ok) throw new Error('无法加载文件列表');
                 const text = await response.text();
-                log(`文件内容长度: ${text.length} 字符`);
-                document.getElementById('rawContent').textContent = text;
-                
-                const parsed = parseFilesInf(text);
-                log(`解析成功，共 ${parsed.length} 个文件`);
-                return parsed;
+                return parseFilesInf(text);
             } catch (error) {
-                log(`加载失败: ${error.message}`, 'error');
+                console.error('加载失败:', error);
                 return null;
             }
         }
 
-        // 解析文件
         function parseFilesInf(text) {
             const files = [];
-            const lines = text.split('\n');
-            log(`总行数: ${lines.length}`);
-            
-            const validLines = lines.filter(line => line.trim() && !line.trim().startsWith('#'));
-            log(`有效行数: ${validLines.length}`);
-            
-            for (const line of validLines) {
+            const lines = text.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
+            for (const line of lines) {
                 const parts = line.split('|').map(p => p.trim());
                 if (parts.length >= 3) {
+                    // 确保路径以 / 结尾（如果是目录）
+                    let path = parts[0];
+                    if (parts[2] === 'dir' && !path.endsWith('/')) {
+                        path = path + '/';
+                    }
                     files.push({
-                        path: parts[0],
+                        path: path,
                         name: parts[1],
                         type: parts[2],
                         size: parts[3] || '0',
-                        updated: parts[4] || ''
+                        updated: parts[4] || new Date().toISOString()
                     });
-                    log(`添加文件: ${parts[0]} (${parts[2]})`);
                 }
             }
-            
             return files;
         }
 
-        // 获取当前目录文件
         function getCurrentFiles() {
             if (!fileData) return [];
             
-            const normalizedCurrentPath = currentPath.replace(/\/$/, '') + '/';
-            log(`当前规范化路径: "${normalizedCurrentPath}"`);
+            // 如果当前路径为空，显示根目录（files/）的直接子项
+            const normalizedCurrentPath = currentPath ? currentPath.replace(/\/$/, '') + '/' : '';
             
-            const files = fileData.filter(file => {
+            return fileData.filter(file => {
                 const filePath = file.path;
-                log(`检查文件: ${filePath} - 是否以 ${normalizedCurrentPath} 开头: ${filePath.startsWith(normalizedCurrentPath)}`);
                 
+                // 检查是否在当前目录下
                 if (!filePath.startsWith(normalizedCurrentPath)) return false;
                 
+                // 获取相对路径
                 const relativePath = filePath.slice(normalizedCurrentPath.length);
-                log(`  相对路径: "${relativePath}"`);
                 
+                // 如果是空字符串，说明是当前目录本身，跳过
                 if (!relativePath) return false;
                 
-                const isDirectChild = !relativePath.includes('/');
-                log(`  是否直接子项: ${isDirectChild}`);
-                return isDirectChild;
+                // 检查是否是直接子项（不包含 /）
+                return !relativePath.includes('/');
             });
-            
-            log(`当前目录文件数: ${files.length}`);
-            return files;
         }
 
-        // 渲染文件列表
+        function formatSize(bytes) {
+            if (!bytes || bytes === '0') return '0 B';
+            const num = parseInt(bytes);
+            if (isNaN(num)) return '0 B';
+            if (num < 1024) return num + ' B';
+            if (num < 1048576) return (num / 1024).toFixed(1) + ' KB';
+            return (num / 1048576).toFixed(1) + ' MB';
+        }
+
+        function renderBreadcrumb() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            const parts = currentPath.split('/').filter(p => p);
+            let html = '<span class="breadcrumb-item" onclick="goPath(\'\')">🏠</span>';
+            let pathAccum = '';
+            for (const part of parts) {
+                pathAccum += part + '/';
+                html += ` / <span class="breadcrumb-item" onclick="goPath('${pathAccum}')">${part}</span>`;
+            }
+            breadcrumb.innerHTML = html;
+        }
+
         function renderFileList() {
             const fileList = document.getElementById('fileList');
             const files = getCurrentFiles();
             
-            updateDebugInfo();
+            renderBreadcrumb();
             
             if (files.length === 0) {
-                fileList.innerHTML = '<div class="error">📭 此目录为空</div>';
+                fileList.innerHTML = '<div class="empty-state">📭 此目录为空</div>';
                 return;
             }
             
+            files.sort((a, b) => {
+                if (a.type === 'dir' && b.type !== 'dir') return -1;
+                if (a.type !== 'dir' && b.type === 'dir') return 1;
+                return a.name.localeCompare(b.name);
+            });
+            
             let html = '';
-            files.forEach(file => {
+            for (const file of files) {
                 const icon = file.type === 'dir' ? '📁' : '📄';
                 html += `
                     <div class="file-item" onclick="handleClick('${file.path}', '${file.type}')">
-                        ${icon} ${file.name} (${file.type}) - ${file.size} bytes
+                        <div class="file-icon">${icon}</div>
+                        <div class="file-info">
+                            <div class="file-name">${file.name}</div>
+                            <div class="file-meta">${file.type === 'dir' ? '文件夹' : formatSize(file.size)}</div>
+                        </div>
+                        ${file.type === 'dir' 
+                            ? `<button class="btn btn-open">打开</button>`
+                            : `<button class="btn btn-download">下载</button>`
+                        }
                     </div>
                 `;
-            });
-            
+            }
             fileList.innerHTML = html;
         }
 
-        // 处理点击
+        function goPath(path) {
+            currentPath = path;
+            renderFileList();
+        }
+
         function handleClick(path, type) {
-            log(`点击: ${path} (${type})`);
             if (type === 'dir') {
                 currentPath = path.endsWith('/') ? path : path + '/';
                 renderFileList();
             } else {
                 const url = `${GITHUB_RAW_BASE}/${CURRENT_REPO}/main/${path}`;
-                log(`下载链接: ${url}`);
                 window.open(url, '_blank');
             }
         }
 
-        // 初始化
         async function init() {
-            log('初始化...');
             fileData = await loadFilesInf();
-            
             if (!fileData) {
-                document.getElementById('fileList').innerHTML = '<div class="error">⚠️ 加载失败</div>';
+                document.getElementById('fileList').innerHTML = '<div class="empty-state">⚠️ 加载失败</div>';
                 return;
             }
-            
-            document.getElementById('parsedData').textContent = JSON.stringify(fileData, null, 2);
+            // 从根目录开始显示
+            currentPath = '';
             renderFileList();
         }
 
