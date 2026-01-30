@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Linux
+*~
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+*.tmp
+*.bak
+
+# 大文件（建议使用 Git LFS）
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.iso
+*.dmg
+
+# 媒体文件（建议使用 Git LFS）
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.mp3
+*.wav
+*.flac
+
+# 图片文件（建议使用 Git LFS）
+*.psd
+*.ai
+*.sketch
